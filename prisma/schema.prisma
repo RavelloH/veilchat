@@ -1,0 +1,117 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                 String       @id @default(uuid())
+  username           String       @unique
+  password           String?
+  name               String?
+  email              String?      @unique
+  isAnonymous        Boolean      @default(false)
+  avatar             String?
+  bio                String?
+  publicKey          String       @db.Text
+  privateKeyEncrypted String?     @db.Text
+  twoFactorSecret    String?
+  twoFactorEnabled   Boolean      @default(false)
+  chatLink           String?      @unique
+  lastLoginAt        DateTime?
+  autoDeleteDays     Int?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+  sessions           Session[]
+  sentMessages       Message[]    @relation("SentMessages")
+  receivedMessages   Message[]    @relation("ReceivedMessages")
+  chats              ChatUser[]
+  groups             GroupMember[]
+}
+
+model Session {
+  id           String   @id @default(uuid())
+  userId       String
+  deviceInfo   String?
+  token        String   @unique
+  lastActiveAt DateTime @default(now())
+  createdAt    DateTime @default(now())
+  expiresAt    DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Chat {
+  id        String     @id @default(uuid())
+  type      ChatType   @default(DIRECT)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  messages  Message[]
+  users     ChatUser[]
+}
+
+model ChatUser {
+  chatId     String
+  userId     String
+  joinedAt   DateTime @default(now())
+  superPrivacyEnabled Boolean @default(false)
+  chat       Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([chatId, userId])
+}
+
+model Message {
+  id            String    @id @default(uuid())
+  chatId        String
+  senderId      String
+  content       String    @db.Text
+  encryptedKey  String?   @db.Text
+  mediaUrl      String?
+  mediaType     String?
+  replyToId     String?
+  isDeleted     Boolean   @default(false)
+  autoDeleteAt  DateTime?
+  createdAt     DateTime  @default(now())
+  deliveredTo   Message[] @relation("MessageDelivery")
+  deliveredFrom Message?  @relation("MessageDelivery", fields: [replyToId], references: [id], onDelete: SetNull)
+  chat          Chat      @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  sender        User      @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  recipients    User[]    @relation("ReceivedMessages")
+}
+
+model Group {
+  id          String        @id @default(uuid())
+  name        String
+  description String?
+  avatar      String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  members     GroupMember[]
+}
+
+model GroupMember {
+  groupId    String
+  userId     String
+  role       GroupRole @default(MEMBER)
+  joinedAt   DateTime  @default(now())
+  group      Group     @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([groupId, userId])
+}
+
+enum ChatType {
+  DIRECT
+  GROUP
+}
+
+enum GroupRole {
+  ADMIN
+  MEMBER
+}
