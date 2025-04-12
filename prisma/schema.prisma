@@ -10,108 +10,109 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// 用户模型
 model User {
-  id                 String       @id @default(uuid())
-  username           String       @unique
-  password           String?
+  id                 String    @id @default(cuid())
+  username           String    @unique
   name               String?
-  email              String?      @unique
-  isAnonymous        Boolean      @default(false)
+  email              String?   @unique
+  passwordHash       String
+  publicKey          String
+  privateKeyEncrypted String
   avatar             String?
   bio                String?
-  publicKey          String       @db.Text
-  privateKeyEncrypted String?     @db.Text
-  twoFactorSecret    String?
-  twoFactorEnabled   Boolean      @default(false)
-  chatLink           String?      @unique
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
   lastLoginAt        DateTime?
-  autoDeleteDays     Int?
-  createdAt          DateTime     @default(now())
-  updatedAt          DateTime     @updatedAt
-  sessions           Session[]
-  sentMessages       Message[]    @relation("SentMessages")
-  receivedMessages   Message[]    @relation("ReceivedMessages")
-  chats              ChatUser[]
-  groups             GroupMember[]
+  isAnonymous        Boolean   @default(false)
+  autoDeleteAt       DateTime?
+  twoFactorEnabled   Boolean   @default(false)
+  twoFactorSecret    String?
+  
+  // 关系
+  chatUsers          ChatUser[]
+  messages           Message[]
+  sentMessages       Message[]  @relation("SentMessages")
+  readReceipts       ReadReceipt[] // 新增：用户的已读记录
 }
 
-model Session {
-  id           String   @id @default(uuid())
-  userId       String
-  deviceInfo   String?
-  token        String   @unique
-  lastActiveAt DateTime @default(now())
-  createdAt    DateTime @default(now())
-  expiresAt    DateTime
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-}
-
+// 聊天模型
 model Chat {
-  id        String     @id @default(uuid())
-  type      ChatType   @default(DIRECT)
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
-  messages  Message[]
-  users     ChatUser[]
+  id                String    @id @default(cuid())
+  name              String?
+  isGroup           Boolean   @default(false)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  superPrivacyMode  Boolean   @default(false)
+  
+  // 关系
+  users             ChatUser[]
+  messages          Message[]
+  readReceipts      ReadReceipt[]  // 新增：聊天中的已读回执关系
 }
 
+// 聊天用户关系
 model ChatUser {
-  chatId     String
-  userId     String
-  joinedAt   DateTime @default(now())
-  superPrivacyEnabled Boolean @default(false)
-  chat       Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@id([chatId, userId])
+  id               String    @id @default(cuid())
+  chatId           String
+  userId           String
+  joinedAt         DateTime  @default(now())
+  isAdmin          Boolean   @default(false)
+  personalChatLink String?   @unique
+  lastReadMessageId String?  // 新增：该用户在此聊天中最后已读的消息ID
+  
+  // 关系
+  chat             Chat      @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lastReadMessage  Message?  @relation("LastReadMessage", fields: [lastReadMessageId], references: [id], onDelete: SetNull)
+  
+  @@unique([chatId, userId])
 }
 
+// 消息模型
 model Message {
-  id            String    @id @default(uuid())
-  chatId        String
-  senderId      String
-  content       String    @db.Text
-  encryptedKey  String?   @db.Text
-  mediaUrl      String?
-  mediaType     String?
-  replyToId     String?
-  isDeleted     Boolean   @default(false)
-  autoDeleteAt  DateTime?
-  createdAt     DateTime  @default(now())
-  deliveredTo   Message[] @relation("MessageDelivery")
-  deliveredFrom Message?  @relation("MessageDelivery", fields: [replyToId], references: [id], onDelete: SetNull)
-  chat          Chat      @relation(fields: [chatId], references: [id], onDelete: Cascade)
-  sender        User      @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
-  recipients    User[]    @relation("ReceivedMessages")
+  id              String    @id @default(cuid())
+  chatId          String
+  senderId        String
+  content         String
+  encryptedKey    String?
+  mediaUrl        String?
+  mediaType       String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  isDeleted       Boolean   @default(false)
+  autoDeleteAt    DateTime?
+  replyToId       String?
+  senderVisible   Boolean   @default(false)  // 标记该消息发送方可见
+  
+  // 关系
+  chat            Chat      @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  sender          User      @relation(fields: [senderId], references: [id], map: "Message_sender_fkey")
+  senderRelation  User      @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade, map: "Message_senderRelation_fkey")
+  replyTo         Message?  @relation("ReplyTo", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies         Message[] @relation("ReplyTo")
+  deliveredFrom   Message?  @relation("ForwardFrom", fields: [deliveredFromId], references: [id], onDelete: SetNull)
+  deliveredTo     Message[] @relation("ForwardFrom")
+  deliveredFromId String?
+  
+  // 已读跟踪相关
+  readBy          ReadReceipt[]     // 新增：记录哪些用户已读此消息
+  lastReadInChats ChatUser[]        @relation("LastReadMessage") // 新增：作为最后已读消息的关系
 }
 
-model Group {
-  id          String        @id @default(uuid())
-  name        String
-  description String?
-  avatar      String?
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
-  members     GroupMember[]
-}
-
-model GroupMember {
-  groupId    String
-  userId     String
-  role       GroupRole @default(MEMBER)
-  joinedAt   DateTime  @default(now())
-  group      Group     @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@id([groupId, userId])
-}
-
-enum ChatType {
-  DIRECT
-  GROUP
-}
-
-enum GroupRole {
-  ADMIN
-  MEMBER
+// 新增：已读回执模型
+model ReadReceipt {
+  id        String   @id @default(cuid())
+  userId    String
+  messageId String
+  chatId    String
+  readAt    DateTime @default(now())
+  
+  // 关系
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  chat      Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  
+  @@unique([userId, messageId])
+  @@index([chatId, userId])
 }

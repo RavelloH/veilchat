@@ -2,8 +2,9 @@ import NextAuth from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import { prisma } from '../../../lib/db';
 import { verifyCredentials, verifyTOTP } from '../../../lib/auth';
+import { getServerSession } from 'next-auth/next';
 
-export default NextAuth({
+export const authOptions = {
   providers: [
     CredentialsProvider({
       name: 'Credentials',
@@ -108,4 +109,11 @@ export default NextAuth({
   },
   secret: process.env.NEXTAUTH_SECRET,
   debug: process.env.NODE_ENV === 'development'
-});
+};
+
+export default NextAuth(authOptions);
+
+// 暴露一个服务器端获取会话的函数
+export async function getServerAuthSession(req, res) {
+  return await getServerSession(req, res, authOptions);
+}

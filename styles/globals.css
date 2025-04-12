@@ -25,6 +25,67 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* 暗色模式文本颜色调整 */
+.dark {
+  color-scheme: dark;
+}
+
+.dark text,
+.dark p,
+.dark h1,
+.dark h2,
+.dark h3,
+.dark h4,
+.dark h5,
+.dark h6,
+.dark span,
+.dark div {
+  color: rgba(229, 231, 235, 1); /* gray-200 */
+}
+
+.dark .text-gray-900 {
+  color: rgba(229, 231, 235, 1) !important; /* gray-200 */
+}
+
+.dark .text-gray-800 {
+  color: rgba(209, 213, 219, 1) !important; /* gray-300 */
+}
+
+.dark .text-gray-700 {
+  color: rgba(156, 163, 175, 1) !important; /* gray-400 */
+}
+
+/* 确保链接文本颜色正确 */
+.dark a:not([class*="text-"]) {
+  color: rgba(96, 165, 250, 1); /* blue-400 */
+}
+
+.dark a:not([class*="text-"]):hover {
+  color: rgba(147, 197, 253, 1); /* blue-300 */
+}
+
+/* 链接文本特定样式覆盖 */
+.dark .text-gray-600 {
+  color: rgba(156, 163, 175, 1) !important; /* gray-400 */
+}
+
+.dark .text-gray-500 {
+  color: rgba(107, 114, 128, 1) !important; /* gray-500 */
+}
+
+/* 修复输入框文本颜色 */
+.dark input,
+.dark textarea,
+.dark select {
+  color: rgba(229, 231, 235, 1); /* gray-200 */
+  background-color: #374151;
+  border-color: #4b5563;
+}
+
+.dark input::placeholder, .dark textarea::placeholder {
+  color: #9ca3af;
+}
+
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }
@@ -79,3 +140,99 @@ body {
     height: -webkit-fill-available;
   }
 }
+
+/* 增强的动画效果 */
+.slide-down {
+  animation: slideDown 0.3s ease-out;
+}
+
+.slide-in-right {
+  animation: slideInRight 0.3s ease-out;
+}
+
+.slide-in-left {
+  animation: slideInLeft 0.3s ease-out;
+}
+
+.scale-in {
+  animation: scaleIn 0.2s ease-out;
+}
+
+.bounce-in {
+  animation: bounceIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+@keyframes slideDown {
+  from { transform: translateY(-20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes slideInRight {
+  from { transform: translateX(30px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes slideInLeft {
+  from { transform: translateX(-30px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes scaleIn {
+  from { transform: scale(0.95); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+@keyframes bounceIn {
+  0% { transform: scale(0.8); opacity: 0; }
+  70% { transform: scale(1.05); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* 平滑过渡 */
+.transition-all-300 {
+  transition: all 0.3s ease-in-out;
+}
+
+.transition-transform-300 {
+  transition: transform 0.3s ease-in-out;
+}
+
+.transition-opacity-300 {
+  transition: opacity 0.3s ease-in-out;
+}
+
+.hover-scale {
+  transition: transform 0.2s ease;
+}
+
+.hover-scale:hover {
+  transform: scale(1.03);
+}
+
+.hover-lift {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* 深色模式优化 */
+.dark .bg-secondary-800 {
+  background-color: #1e2534; /* 更深的灰色 */
+}
+
+.dark .bg-secondary-900 {
+  background-color: #141923; /* 更深的灰色 */
+}
+
+.dark .dark-extra-deep {
+  background-color: #0c0f16; /* 极深的灰色 */
+}
+
+.dark .border-secondary-700 {
+  border-color: #1a1f2c; /* 更深的边框色 */
+}
+
+/* 更多深色模式调整... */

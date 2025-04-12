@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
-import { format } from 'date-fns';
+import { formatTime, formatShortDate, isToday } from '../lib/dateUtils';
 import { translate } from '../lib/i18n';
 import { decryptMessage } from '../lib/encryption';
+import ContextMenu from './ContextMenu';
 
 export default function ChatList({ 
   chats, 
@@ -12,10 +13,14 @@ export default function ChatList({
   currentUserId, 
   privateKey,
   locale,
-  loading = false
+  loading = false,
+  onDeleteChat,
+  onMuteChat,
+  onViewProfile
 }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [filteredChats, setFilteredChats] = useState(chats || []);
+  const [contextMenu, setContextMenu] = useState({ isOpen: false, position: { x: 0, y: 0 }, chatId: null });
   
   // 当聊天列表变化时重新过滤
   useEffect(() => {
@@ -39,6 +44,109 @@ export default function ChatList({
     
     setFilteredChats(filtered);
   }, [chats, searchTerm, currentUserId]);
+  
+  // 处理右键菜单
+  const handleContextMenu = (e, chatId) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({
+      isOpen: true,
+      position: { x: e.clientX, y: e.clientY },
+      chatId
+    });
+  };
+  
+  // 获取右键菜单项
+  const getContextMenuItems = (chatId) => {
+    const chat = chats.find(c => c.id === chatId);
+    if (!chat) return [];
+    
+    const otherUser = chat.users.find(u => u.user.id !== currentUserId)?.user;
+    
+    const items = [
+      {
+        label: translate('chat.viewProfile', locale) || '查看资料',
+        icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+              </svg>,
+        onClick: () => onViewProfile && onViewProfile(otherUser)
+      },
+      {
+        label: translate('chat.mute', locale) || '静音通知',
+        icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+              </svg>,
+        onClick: () => onMuteChat && onMuteChat(chatId)
+      },
+      { divider: true },
+      {
+        label: translate('chat.deleteChat', locale) || '删除聊天',
+        icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>,
+        onClick: () => onDeleteChat && onDeleteChat(chatId),
+        danger: true
+      }
+    ];
+    
+    return items;
+  };
+  
+  // 解密消息预览
+  const getMessagePreview = (latestMessage) => {
+    if (!latestMessage) return '';
+    
+    if (latestMessage.isDeleted) {
+      return translate('chat.messageDeleted', locale) || '消息已删除';
+    } 
+    
+    if (latestMessage.mediaUrl) {
+      if (latestMessage.mediaType?.startsWith('image')) {
+        return translate('chat.sentImage', locale) || '发送了一张图片';
+      } else if (latestMessage.mediaType?.startsWith('audio')) {
+        return translate('chat.sentAudio', locale) || '发送了一段语音';
+      } else {
+        return translate('chat.sentFile', locale) || '发送了一个文件';
+      }
+    }
+    
+    // 检查是发送方自己的消息还是需要解密的消息
+    if (latestMessage.senderId === currentUserId || latestMessage.senderVisible) {
+      // 发送方自己的消息，直接使用Base64解码
+      try {
+        const decoded = Buffer.from(latestMessage.content, 'base64').toString('utf8');
+        return decoded.substring(0, 30) + (decoded.length > 30 ? '...' : '');
+      } catch (error) {
+        console.error('解码预览失败:', error);
+        return translate('chat.messagePreviewFailed', locale) || '(消息预览不可用)';
+      }
+    } 
+    // 需要解密的消息
+    else if (latestMessage.encryptedKey && privateKey) {
+      try {
+        const decrypted = decryptMessage(
+          latestMessage.content,
+          latestMessage.encryptedKey,
+          privateKey
+        );
+        
+        return decrypted 
+          ? decrypted.substring(0, 30) + (decrypted.length > 30 ? '...' : '')
+          : translate('chat.encryptedMessage', locale) || '加密消息';
+      } catch (error) {
+        console.error('解密预览失败:', error);
+        return translate('chat.encryptedMessage', locale) || '加密消息';
+      }
+    } else {
+      // 尝试直接Base64解码
+      try {
+        const decoded = Buffer.from(latestMessage.content, 'base64').toString('utf8');
+        return decoded.substring(0, 30) + (decoded.length > 30 ? '...' : '');
+      } catch (error) {
+        return translate('chat.encryptedMessage', locale) || '加密消息';
+      }
+    }
+  };
   
   if (loading) {
     return (
@@ -107,15 +215,26 @@ export default function ChatList({
         ) : (
           <>
             <div className="sticky top-0 bg-gray-50 dark:bg-secondary-900 p-3 border-b border-gray-200 dark:border-secondary-700 z-10">
-              <button 
-                onClick={onNewChat}
-                className="w-full flex items-center justify-center px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                </svg>
-                {translate('chat.newChat', locale)}
-              </button>
+              <div className="flex gap-2">
+                <button 
+                  onClick={onNewChat}
+                  className="flex-1 flex items-center justify-center px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 0L11.828 15H9v-2.828l8.586-8.586z" />
+                  </svg>
+                  {translate('chat.newChat', locale)}
+                </button>
+                <button 
+                  onClick={() => props.onCreateGroup ? props.onCreateGroup() : setShowNewGroupModal(true)}
+                  className="flex-1 flex items-center justify-center px-4 py-2 bg-secondary-600 text-white rounded-md hover:bg-secondary-700 transition-colors"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                  </svg>
+                  {translate('chat.createGroup', locale)}
+                </button>
+              </div>
             </div>
           
             {filteredChats.map(chat => {
@@ -125,45 +244,22 @@ export default function ChatList({
               // 获取最新消息
               const latestMessage = chat.messages[0];
               
-              // 解密最新消息预览（如果有的话）
-              let messagePreview = '';
-              if (latestMessage) {
-                if (latestMessage.isDeleted) {
-                  messagePreview = translate('chat.messageDeleted', locale) || '消息已删除';
-                } else if (latestMessage.mediaUrl) {
-                  if (latestMessage.mediaType?.startsWith('image')) {
-                    messagePreview = translate('chat.sentImage', locale) || '发送了一张图片';
-                  } else if (latestMessage.mediaType?.startsWith('audio')) {
-                    messagePreview = translate('chat.sentAudio', locale) || '发送了一段语音';
-                  } else {
-                    messagePreview = translate('chat.sentFile', locale) || '发送了一个文件';
-                  }
-                } else if (latestMessage.encryptedKey && privateKey) {
-                  try {
-                    const decrypted = decryptMessage(
-                      latestMessage.content,
-                      latestMessage.encryptedKey,
-                      privateKey
-                    );
-                    messagePreview = decrypted?.substring(0, 30) + (decrypted?.length > 30 ? '...' : '') || '';
-                  } catch {
-                    messagePreview = translate('chat.encryptedMessage', locale) || '加密消息';
-                  }
-                } else {
-                  messagePreview = latestMessage.content?.substring(0, 30) + (latestMessage.content?.length > 30 ? '...' : '') || '';
-                }
-              }
+              // 获取解密后的消息预览
+              const messagePreview = latestMessage ? getMessagePreview(latestMessage) : '';
               
               // 格式化最新消息时间
               const messageTime = latestMessage 
-                ? format(new Date(latestMessage.createdAt), new Date(latestMessage.createdAt).toDateString() === new Date().toDateString() ? 'HH:mm' : 'MM/dd') 
+                ? isToday(new Date(latestMessage.createdAt)) 
+                  ? formatTime(new Date(latestMessage.createdAt)) 
+                  : formatShortDate(new Date(latestMessage.createdAt))
                 : '';
               
               return (
                 <div 
                   key={chat.id}
                   onClick={() => onChatSelect(chat)}
-                  className={`flex items-center p-3 cursor-pointer border-b border-gray-200 dark:border-secondary-800 hover:bg-gray-100 dark:hover:bg-secondary-800 transition ${
+                  onContextMenu={(e) => handleContextMenu(e, chat.id)}
+                  className={`flex items-center p-3 cursor-pointer border-b border-gray-200 dark:border-secondary-800 hover:bg-gray-100 dark:hover:bg-secondary-800 transition-all-300 hover-scale ${
                     activeChat?.id === chat.id ? 'bg-primary-50 dark:bg-primary-900/20' : ''
                   }`}
                 >
@@ -204,6 +300,13 @@ export default function ChatList({
           </>
         )}
       </div>
+      
+      <ContextMenu
+        isOpen={contextMenu.isOpen}
+        position={contextMenu.position}
+        onClose={() => setContextMenu({ ...contextMenu, isOpen: false })}
+        items={getContextMenuItems(contextMenu.chatId)}
+      />
     </div>
   );
 }

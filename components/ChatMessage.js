@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
 import Image from 'next/image';
-import { format } from 'date-fns';
 import { decryptMessage } from '../lib/encryption';
 import { translate } from '../lib/i18n';
+import { formatTime, formatDate } from '../lib/dateUtils';
+import ContextMenu from './ContextMenu';
 
 export default function ChatMessage({ 
   message, 
@@ -10,6 +11,7 @@ export default function ChatMessage({
   privateKey,
   onReply, 
   onDelete, 
+  onForward,
   replyingTo, 
   locale 
 }) {
@@ -17,6 +19,7 @@ export default function ChatMessage({
   const [isDecrypting, setIsDecrypting] = useState(true);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isImageLoaded, setIsImageLoaded] = useState(false);
+  const [contextMenu, setContextMenu] = useState({ isOpen: false, position: { x: 0, y: 0 } });
   const menuRef = useRef(null);
   const messageRef = useRef(null);
   
@@ -34,35 +37,94 @@ export default function ChatMessage({
     };
   }, []);
   
-  // 解密消息内容
+  // 增加对临时消息的处理
   useEffect(() => {
+    // 如果是临时消息且是自己发的，直接显示原始内容
+    if (message.isTemp && isOwn) {
+      setDecryptedContent(message.content);
+      setIsDecrypting(false);
+      return;
+    }
+    
+    // 正常消息的解密流程
     async function decrypt() {
       if (!message.content || message.isDeleted) {
         setIsDecrypting(false);
+        setDecryptedContent('');
         return;
       }
       
       try {
-        if (message.encryptedKey && privateKey) {
-          const decrypted = decryptMessage(
-            message.content,
-            message.encryptedKey,
-            privateKey
-          );
-          setDecryptedContent(decrypted || translate('error.decryptionFailed', locale) || '解密失败');
-        } else {
-          setDecryptedContent(message.content);
+        // 检查是否为明确的Base64编码消息
+        if (message.mediaType === 'base64-text') {
+          try {
+            const decodedContent = Buffer.from(message.content, 'base64').toString('utf8');
+            setDecryptedContent(decodedContent);
+            return;
+          } catch (error) {
+            console.warn('Base64解码失败:', error);
+          }
         }
+        
+        // 1. 处理加密消息
+        if (message.encryptedKey && privateKey) {
+          try {
+            const decrypted = decryptMessage(
+              message.content,
+              message.encryptedKey,
+              privateKey
+            );
+            
+            if (decrypted) {
+              setDecryptedContent(decrypted);
+              return;
+            }
+          } catch (rsaError) {
+            console.warn('RSA解密失败:', rsaError);
+          }
+        }
+        
+        // 2. 尝试Base64解码
+        try {
+          const decodedContent = Buffer.from(message.content, 'base64').toString('utf8');
+          setDecryptedContent(decodedContent);
+          return;
+        } catch (base64Error) {
+          console.warn('Base64解码失败:', base64Error);
+        }
+        
+        // 3. 如果前两种方法都失败，直接显示原始内容
+        setDecryptedContent(message.content);
       } catch (error) {
-        console.error('解密失败:', error);
-        setDecryptedContent(translate('error.decryptionFailed', locale) || '解密失败');
+        console.error('消息处理失败:', error);
+        // 确保至少显示一些内容
+        setDecryptedContent(message.content || translate('error.decryptionFailed', locale) || '解密失败');
       } finally {
         setIsDecrypting(false);
       }
     }
     
     decrypt();
-  }, [message, privateKey, locale]);
+  }, [message, privateKey, locale, isOwn]);
+
+  // 调试用，在控制台显示消息内容
+  useEffect(() => {
+    if (!isDecrypting && (!decryptedContent || decryptedContent.length === 0) && message.content) {
+      console.log('警告：消息解密后为空', { 
+        messageId: message.id, 
+        originalContent: message.content,
+        hasEncryptedKey: !!message.encryptedKey,
+        isOwn 
+      });
+    }
+  }, [decryptedContent, isDecrypting, message, isOwn]);
+  
+  // 在渲染阶段增加调试信息
+  useEffect(() => {
+    if (!decryptedContent && !isDecrypting && message.content) {
+      console.log('解密后内容为空，原始消息:', message);
+    }
+  }, [decryptedContent, isDecrypting, message]);
   
   // 当回复此消息时，滚动到此消息
   useEffect(() => {
@@ -77,6 +139,67 @@ export default function ChatMessage({
     }
   }, [replyingTo, message.id]);
   
+  // 处理右键点击
+  const handleContextMenu = (e) => {
+    e.preventDefault();
+    setContextMenu({
+      isOpen: true,
+      position: { x: e.clientX, y: e.clientY }
+    });
+  };
+  
+  // 生成右键菜单项
+  const getContextMenuItems = () => {
+    const items = [
+      {
+        label: translate('chat.reply', locale),
+        icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+              </svg>,
+        onClick: () => onReply(message)
+      },
+      {
+        label: translate('chat.copy', locale) || '复制',
+        icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+              </svg>,
+        onClick: () => {
+          if (decryptedContent) {
+            navigator.clipboard.writeText(decryptedContent);
+          }
+        },
+        disabled: !decryptedContent || message.isDeleted
+      },
+      {
+        label: translate('chat.forward', locale),
+        icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
+              </svg>,
+        onClick: () => {
+          if (onForward && decryptedContent) {
+            onForward(message);
+          }
+        },
+        disabled: !decryptedContent || message.isDeleted
+      }
+    ];
+    
+    // 仅消息所有者可以删除消息
+    if (isOwn) {
+      items.push({ divider: true });
+      items.push({
+        label: translate('chat.delete', locale),
+        icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>,
+        onClick: () => onDelete(message.id),
+        danger: true
+      });
+    }
+    
+    return items;
+  };
+  
   if (message.isDeleted) {
     return (
       <div 
@@ -90,10 +213,49 @@ export default function ChatMessage({
       </div>
     );
   }
+
+  // 渲染发送失败的临时消息
+  if (message.isTemp && message.sendFailed) {
+    return (
+      <div className="flex justify-end mb-4">
+        <div className="message-bubble bg-red-100 dark:bg-red-900/20 text-red-600 dark:text-red-400 p-2 rounded-lg">
+          <p className="flex items-center">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            {translate('chat.messageFailed', locale) || '发送失败'}
+          </p>
+          <p className="text-sm">{message.content}</p>
+          <button 
+            className="text-xs text-red-600 dark:text-red-400 underline mt-1"
+            onClick={() => {/* 可添加重试功能 */}}
+          >
+            {translate('chat.retry', locale) || '重试'}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // 显示临时消息（正在发送中）
+  if (message.isTemp) {
+    return (
+      <div className="flex justify-end mb-4 opacity-70">
+        <div className="message-bubble bg-primary-500 text-white p-3 rounded-tl-lg rounded-br-lg rounded-bl-lg">
+          <p>{message.content}</p>
+          <div className="text-xs text-right mt-1 flex items-center justify-end">
+            <div className="animate-pulse h-2 w-2 bg-white rounded-full mr-1"></div>
+            <div className="animate-pulse h-2 w-2 bg-white rounded-full mr-1" style={{ animationDelay: '0.2s' }}></div>
+            <div className="animate-pulse h-2 w-2 bg-white rounded-full" style={{ animationDelay: '0.4s' }}></div>
+          </div>
+        </div>
+      </div>
+    );
+  }
   
   // 格式化时间
-  const formattedTime = format(new Date(message.createdAt), 'HH:mm');
-  const formattedDate = format(new Date(message.createdAt), 'yyyy-MM-dd');
+  const formattedTime = formatTime(new Date(message.createdAt));
+  const formattedDate = formatDate(new Date(message.createdAt));
   
   // 检查消息是否包含图片或媒体
   const isMedia = message.mediaUrl && message.mediaType?.startsWith('image');
@@ -122,7 +284,10 @@ export default function ChatMessage({
         </div>
       )}
       
-      <div className={`flex flex-col ${isOwn ? 'items-end' : 'items-start'} max-w-[70%]`}>
+      <div 
+        className={`flex flex-col ${isOwn ? 'items-end' : 'items-start'} max-w-[70%]`}
+        onContextMenu={handleContextMenu}
+      >
         {/* 被回复的消息 */}
         {message.deliveredFrom && (
           <div className={`${isOwn ? 'bg-primary-50 dark:bg-primary-900/20' : 'bg-gray-100 dark:bg-secondary-700/50'} 
@@ -132,8 +297,8 @@ export default function ChatMessage({
               {message.deliveredFrom.sender.name || message.deliveredFrom.sender.username}
             </div>
             <div className="truncate">
-              {message.deliveredFrom.content.slice(0, 50)}
-              {message.deliveredFrom.content.length > 50 && '...'}
+              {message.deliveredFrom.content?.slice(0, 50) || ''}
+              {message.deliveredFrom.content?.length > 50 && '...'}
             </div>
           </div>
         )}
@@ -263,6 +428,13 @@ export default function ChatMessage({
           )}
         </div>
       </div>
+      
+      <ContextMenu
+        isOpen={contextMenu.isOpen}
+        position={contextMenu.position}
+        onClose={() => setContextMenu({ ...contextMenu, isOpen: false })}
+        items={getContextMenuItems()}
+      />
     </div>
   );
 }

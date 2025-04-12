@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import { LocaleContext } from './_app';
 import { translate } from '../lib/i18n';
+import React from 'react';
 
 export default function Home() {
   const { data: session, status } = useSession();
